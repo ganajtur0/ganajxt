@@ -1,7 +1,5 @@
 // TODO : 
-//	- make file extension function universal
-//	- write compile function
-//	- fix main
+//	- finish writing compile function
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,7 +42,7 @@ struct {
 } DynWchar;
 
 DynWchar
-new_wchar(void) {
+dwc_new(void) {
     DynWchar dw;
     dw.string = calloc(64, sizeof(wchar_t));
     dw.length = 0;
@@ -53,7 +51,7 @@ new_wchar(void) {
 }
 
 int
-wchar_append(DynWchar *dw, wchar_t wc) {
+dwc_append(DynWchar *dw, wchar_t wc) {
     if (dw->length == dw->allocated) {
 	dw->allocated = (dw->allocated << 1);
 	if (!reallocarray(dw->string, dw->allocated, sizeof(wchar_t))) {
@@ -63,6 +61,11 @@ wchar_append(DynWchar *dw, wchar_t wc) {
     }
     dw->string[(dw->length)++] = wc;
     return 0;
+}
+
+void
+dwc_delete(DynWchar *dwc) {
+    free(dwc->string);
 }
 
 // This linked list is gonna have a function
@@ -79,6 +82,13 @@ struct listitem {
 
 typedef
 struct ctx {
+    enum {
+	KEY,
+	VALUE,
+	COMMENT,
+	NEWLINE,
+	UNDEFINED
+    } state;
     ListItem *first; // points to the first element of the itemlist
     ListItem *last; // points to the last element of the itemlist
 } Ctx;
@@ -124,8 +134,8 @@ list_free(ListItem *first) {
     while (iter != NULL) {
 	ListItem *tmp = iter;
 	iter = iter->next;
-	free(iter->item.value.string);
-	free(iter);
+	free(tmp->item.value.string);
+	free(tmp);
     }
 }
 
@@ -144,16 +154,7 @@ list_insert(Ctx *ctx, char key[10], DynWchar value) {
     }
     ListItem *iter = ctx->first;
     ListItem *tmp;
-    /*
-    while (iter->next != NULL) {
-	tmp = iter;
-	iter = iter->next;
-	if (!gt(new_item->item.key, iter->item.key)) {
-	    iter = tmp;
-	    break;
-	}
-    }
-    */
+
     while (iter->next != NULL
 	&& gt(new_item->item.key, iter->item.key))
 	    iter = iter->next;
@@ -181,7 +182,7 @@ list_print(Ctx *ctx) {
 }
 
 int
-filename_with_txt_extension(char *filename, char **result) {
+change_file_extension(char *filename, const char *ext, char **result) {
 
     char *tmp = strdup(filename);
 
@@ -201,7 +202,7 @@ filename_with_txt_extension(char *filename, char **result) {
 	  (*(iter++)) = tmp[i++]
 	);
 
-    strncpy(iter, ".txt", 4);
+    strncpy(iter, ext, 4);
 
     (*result)[tmp_len + 4] = '\0';
 
@@ -293,6 +294,68 @@ decompile(char *gxt_filename, char *txt_filename) {
     return 0;
 }
 
+int
+compile(Ctx *c, const char *txt_filename, const char *gxt_filename) {
+    
+    FILE *txtfile  = fopen(txt_filename, "r");
+    if ( txtfile == NULL ) {
+	error("Could not open .txt file!");
+	return 1;
+    }
+
+    FILE *gxtfile = fopen(gxt_filename, "wb");
+    if ( gxtfile == NULL ) {
+	error("Could not open .gxt file");
+	return 1;
+    }
+
+    wchar_t wc;
+
+    char key_buffer[10] = {0};
+    int key_buffer_size = 0;
+
+    DynWchar dwc = dwc_new();
+
+    while ( (wc = fgetwc(txtfile)) != WEOF ) {
+	switch (wc) {
+	case L'[':
+	    if ( c->state == VALUE )
+		printf("%d, %ls\n", dwc.length, dwc.string);
+	    memset(key_buffer, 0, 10);
+	    key_buffer_size = 0;
+	    c->state = KEY;
+	    break;
+	case L']':
+	    printf("%s\n", key_buffer);
+	    c->state = VALUE;
+	    break;
+	case L'{':
+	    c->state = COMMENT;
+	    break;
+	case L'}':
+	    c->state = UNDEFINED;
+	    break;
+	default:
+	    switch (c->state) {
+	    case KEY:
+		key_buffer[key_buffer_size++] = (char)wc;
+		break;
+	    case VALUE:
+	    case UNDEFINED:
+	    	dwc_append(&dwc, wc);
+		break;
+	    default:
+		break;
+	    }
+	}	
+    }
+
+    fclose(txtfile);
+    fclose(gxtfile);
+
+    return 0;
+}
+
 char
 get_prog_state (char *arg_1) {
     
@@ -314,7 +377,7 @@ main( int argc, char *argv[] ) {
 
     setlocale(LC_ALL, "");
 
-    char *txt_filename, prog_state;
+    char *new_filename, prog_state;
 
     if ( argc < 3 ) {
 	print_usage(argv[0]);
@@ -326,67 +389,57 @@ main( int argc, char *argv[] ) {
 	return 0;
     }
 
-    /*
-    // if the user does not give a filename, we create it
-    // from the given .gxt file's basename
-    else if ( argc == 3 ) {
-	if ( filename_with_txt_extension(argv[2], &txt_filename) ) {
-	    fprintf(stderr, "Error when trying to create new filename!\n");
+    switch (prog_state) {
+
+	// decompile file
+	case 'd':
+	// the user did not provide an output filename
+	if ( argc == 3 ) {
+	    if ( change_file_extension( argv[2],
+					".txt",
+					&new_filename) ) {
+		error("Could not create filename with txt extension!");
+		return 1;
+	    }
+	}
+	else 
+	    new_filename = argv[3];
+
+	if (decompile(argv[2], new_filename)) {
+	    error("Error during decompilation process");
 	    return 1;
 	}
+
+	break;
+
+	// compile file
+	case 'c':
+	// the user did not provide an output filename
+	if ( argc == 3 ) {
+	    if ( change_file_extension( argv[2],
+					".gxt",
+					&new_filename) ) {
+		error("Could not create filename with txt extension!");
+		return 1;
+	    }
+	}
+	else 
+	    new_filename = argv[3];
+
+	Ctx c;
+	c.first = NULL;
+	c.last  = NULL;
+
+	if (compile(&c, argv[2], new_filename)) {
+	    error("Error during compilation process");
+	    return 1;
+	}
+
+	break;
+
+	default:
+	break;
     }
-    else if ( argc == 4 ) {
-	txt_filename = argv[3];
-    }
-
-    if (decompile(argv[2], txt_filename))
-	error("Couldn't decompile file");
-    */
-
-    // Testing the list
-    char item1_key[10], item2_key[10], item3_key[10];
-    DynWchar item1_value = new_wchar(),
-	     item2_value = new_wchar(),
-	     item3_value = new_wchar();
-
-    strncpy(item1_key, "1000", 5);
-    strncpy(item2_key, "TAPE", 5);
-    strncpy(item3_key, "AUNT", 5);
-
-    printf("AUNT > TAPE: %s\n", gt(item3_key, item2_key) ? "true" : "false");
-
-    wchar_append(&item1_value, L'B');
-    wchar_append(&item1_value, L'l');
-    wchar_append(&item1_value, L'ö');
-    wchar_append(&item1_value, L'd');
-
-    wchar_append(&item2_value, L'B');
-    wchar_append(&item2_value, L'l');
-    wchar_append(&item2_value, L'ö');
-    wchar_append(&item2_value, L'd');
-
-    wchar_append(&item3_value, L'B');
-    wchar_append(&item3_value, L'l');
-    wchar_append(&item3_value, L'ö');
-    wchar_append(&item3_value, L'd');
-/*
-    item1_value = malloc(sizeof(wchar_t) * 10);
-    wcscpy(item1_value, L"Blöd1 Kuh");
-
-    item2_value = malloc(sizeof(wchar_t) * 10);
-    wcscpy(item2_value, L"Blödt Kuh");
-
-    item3_value = malloc(sizeof(wchar_t) * 10);
-    wcscpy(item3_value, L"Blöda Kuh");
-*/
-    Ctx c;
-    c.first = NULL; c.last = NULL;
-
-    list_insert(&c, item1_key, item1_value);
-    list_insert(&c, item2_key, item2_value);
-    list_insert(&c, item3_key, item3_value);
-
-    list_print(&c);
 
     return 0;
 }
