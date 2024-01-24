@@ -1,4 +1,4 @@
 main:
 	cc -o ganajxt ganajxt.c
 gdb:
-	cc -g -o ganajxt ganajxt.c && gdb ./ganajxt
+	cc -g -o gdbxt ganajxt.c && gdb --args gdbxt -d test.gxt
