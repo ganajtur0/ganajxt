@@ -1,7 +1,6 @@
 // TODO : 
 //	- fix compilation
 
-#include <endian.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -199,15 +198,13 @@ list_print(Ctx *ctx) {
 void
 write_gtx_file(Ctx *ctx, FILE *f) {
     fwrite("TKEY", 1, 4, f); // TKEY string
-    DWORD tkey_block_size = ctx->list_len << 3;
-    tkey_block_size = htobe32(tkey_block_size);
+    DWORD tkey_block_size = ( ctx->list_len << 3 ) + ( ctx->list_len << 2 );
     fwrite(&tkey_block_size, sizeof(DWORD), 1, f); // TKEY block size
     ListItem *iter = ctx->first;
     DWORD tdat_entry_offset = 0;
-    tdat_entry_offset = htobe32(tdat_entry_offset);
     while (iter != NULL) {
 	fwrite(&tdat_entry_offset, sizeof(DWORD), 1, f);
-	tdat_entry_offset += iter->item.value.length << 1;
+	tdat_entry_offset += ( iter->item.value.length + 1 ) << 1;
 	fwrite(iter->item.key, 1, 8, f);
 	iter = iter->next;
     }
@@ -223,26 +220,21 @@ write_gtx_file(Ctx *ctx, FILE *f) {
 		}
 	    }
 	}
+	WORD zeroword = 0x0000;
+	fwrite(&zeroword, sizeof(WORD), 1, f);
 	iter = iter->next;
     }
-    DWORD zerodword = 0;
-    zerodword = htobe32(zerodword);
-    fwrite(&zerodword, sizeof(DWORD), 1, f);
 }
 
 int
 change_file_extension(char *filename, const char *ext, char **result) {
 
     char *tmp = strdup(filename);
-
     char *last_dot = strrchr(tmp, '.');
 
     if ( last_dot == NULL || last_dot == filename ) return 1;
-
     *last_dot = '\0';
-    
     int tmp_len = strlen(tmp);
-
     *result = malloc( tmp_len + 5 );
 
     int i = 0; char *iter = *result;
@@ -252,13 +244,9 @@ change_file_extension(char *filename, const char *ext, char **result) {
 	);
 
     strncpy(iter, ext, 4);
-
     (*result)[tmp_len + 4] = '\0';
-
     free(tmp);
-
     return 0;
-
 }
 
 static inline int
@@ -297,7 +285,6 @@ decompile(char *gxt_filename, char *txt_filename) {
 
 	    fread(&tdat_entry_offset, sizeof(DWORD), 1, gxt);
 	    fread(key, sizeof(char), 8, gxt);
-
 	    fputwc(L'[', out);
 
 	    for ( int i = 0; i<8; ++i) {
