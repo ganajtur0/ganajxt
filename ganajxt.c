@@ -142,10 +142,14 @@ list_free(Ctx *c) {
 void
 list_insert(Ctx *ctx, char key[8], DynWchar value) {
     ListItem *new_item = new_listitem(key, value);
+    // if we couldn't create the new listitem we'll get outta here
+    // there's somn' wrong
     if (!new_item) {
 	list_free(ctx);
 	exit(1);
     }
+
+    // The list was empty, we add the first element
     if (ctx->first == NULL) {
 	ctx->first = new_item;
 	ctx->last  = new_item;
@@ -156,6 +160,8 @@ list_insert(Ctx *ctx, char key[8], DynWchar value) {
 
     ListItem *iter = ctx->first;
 
+    // if the first item is already greater than us,
+    // we are the first item
     if (gt(iter->item.key, new_item->item.key)) {
 	new_item->next = iter;
 	ctx->first = new_item;
@@ -164,21 +170,17 @@ list_insert(Ctx *ctx, char key[8], DynWchar value) {
 	return;
     }
 
+    // we loop till we bigger than momma to our right
     ListItem *tmp;
+    ListItem *prev = iter;
 
     while (iter->next != NULL
-	&& gt(new_item->item.key, iter->item.key))
+	&& gt(new_item->item.key, iter->item.key)) {
+	    prev = iter;
 	    iter = iter->next;
-
-    // we're inserting at the end
-    // or the list is only one element long
-    if (iter->next == NULL) {
-	iter->next = new_item;
-	new_item->next = NULL;
-	ctx->last = new_item;
-	(ctx->list_len)++;
-	return;
     }
+    iter = prev;
+
     tmp = iter->next;
     iter->next = new_item;
     new_item->next = tmp;
